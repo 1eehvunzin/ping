@@ -361,9 +361,6 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                       <span className={`pager-envelope ${unread > 0 ? 'is-blinking' : 'is-idle'}`}>
                         ✉{unread}
                       </span>
-                      <span className={`pager-request-badge ${pendingRequests > 0 ? 'is-blinking' : 'is-idle'}`}>
-                        🔔{pendingRequests}
-                      </span>
                       <div className="pager-battery">
                         <div className="pager-battery-cells">
                           {[0, 1, 2, 3].map((i) => (
@@ -454,6 +451,10 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                           >
                             <span className="pager-menu-mark">{mi.idx === homeMenuSel ? '>' : ' '}</span>
                             {mi.label}
+                            {((mi.key === 'inbox' && unread > 0) ||
+                              (mi.key === 'requests' && pendingRequests > 0)) && (
+                              <span className="pager-menu-dot" />
+                            )}
                           </div>
                         ))}
                       </div>

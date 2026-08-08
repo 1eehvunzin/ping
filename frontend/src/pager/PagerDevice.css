@@ -153,9 +153,6 @@
 .pager-envelope.is-blinking { animation: blink 1s steps(1) infinite; }
 .pager-envelope.is-idle { opacity: .4; }
 
-.pager-request-badge.is-blinking { animation: blink 1s steps(1) infinite; }
-.pager-request-badge.is-idle { opacity: .4; }
-
 .pager-battery {
   display: flex;
   align-items: center;
@@ -268,6 +265,13 @@
 .pager-menu-item + .pager-menu-item { margin-top: var(--gap-tight); }
 .pager-menu-item.is-selected { background: var(--lcd-ink); color: var(--lcd-bg); }
 .pager-menu-mark { width: 22px; }
+.pager-menu-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: blink 1s steps(1) infinite;
+}
 
 /* Pick message */
 .pager-pickmsg {
