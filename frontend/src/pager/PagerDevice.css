@@ -6,10 +6,6 @@
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
-@keyframes pageflash {
-  0%, 100% { opacity: 0; }
-  10%, 70% { opacity: 1; }
-}
 @keyframes boot {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -96,21 +92,6 @@
   z-index: 6;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(255, 255, 255, .16), transparent 30%);
-}
-
-.pager-flash {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--lcd-ink);
-  color: var(--lcd-bg);
-  font-family: 'DotGothic16', monospace;
-  font-size: 44px;
-  letter-spacing: 2px;
-  animation: pageflash 1.8s ease;
 }
 
 .pager-off-screen {

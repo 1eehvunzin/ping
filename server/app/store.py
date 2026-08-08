@@ -45,13 +45,6 @@ class Store:
             raise StoreError("WRONG_PASSWORD")
         return account
 
-    def reset_password(self, id: str, new_password: str) -> Account:
-        account = self.accounts.get(id)
-        if not account:
-            raise StoreError("NOT_FOUND")
-        account.password = new_password
-        return account
-
     def send_message(self, from_id: str, to_id: str, code: str) -> dict:
         sender = self.accounts.get(from_id)
         recipient = self.accounts.get(to_id)

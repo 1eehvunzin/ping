@@ -1,6 +1,8 @@
 export type Phase =
   | 'off'
+  | 'authChoice'
   | 'createId'
+  | 'loginId'
   | 'createPw'
   | 'confirmPw'
   | 'login'

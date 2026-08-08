@@ -11,6 +11,7 @@ export interface PagerState {
   entryError: boolean;
   busy: boolean;
   apiError: string | null;
+  authSel: number;
   menuSel: number;
   toId: string;
   isReply: boolean;
@@ -20,8 +21,6 @@ export interface PagerState {
   sentMeaning: string;
   sel: number;
   reqSel: number;
-  flash: boolean;
-  flashKind: 'message' | 'request' | 'welcome';
   msgs: PagerMessage[];
   requests: PagerMessage[];
 }
@@ -36,6 +35,7 @@ export const initialPagerState: PagerState = {
   entryError: false,
   busy: false,
   apiError: null,
+  authSel: 0,
   menuSel: 0,
   toId: '',
   isReply: false,
@@ -45,8 +45,6 @@ export const initialPagerState: PagerState = {
   sentMeaning: '',
   sel: 0,
   reqSel: 0,
-  flash: false,
-  flashKind: 'message',
   msgs: [],
   requests: [],
 };
@@ -58,7 +56,6 @@ export type PagerAction =
   | { type: 'PRESET_PREV' }
   | { type: 'SET_ENTRY_TEXT'; text: string }
   | { type: 'SET_SEARCH_TEXT'; text: string }
-  | { type: 'FLASH_OFF' }
   | { type: 'BUSY_START' }
   | { type: 'PW_MISMATCH' }
   | { type: 'ID_EXISTS'; myId: string }
@@ -73,8 +70,7 @@ export type PagerAction =
   | { type: 'REQUEST_DECLINED' }
   | { type: 'API_ERROR'; message: string }
   | { type: 'API_ERROR_CLEAR' }
-  | { type: 'MESSAGES_LOADED'; msgs: PagerMessage[]; requests: PagerMessage[] }
-  | { type: 'MESSAGES_SYNCED'; msgs: PagerMessage[]; requests: PagerMessage[] };
+  | { type: 'MESSAGES_UPDATED'; msgs: PagerMessage[]; requests: PagerMessage[] };
 
 const PW_PHASES: ReadonlySet<Phase> = new Set(['createPw', 'confirmPw', 'login']);
 
@@ -89,6 +85,8 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
   switch (action.type) {
     case 'NEXT': {
       switch (state.phase) {
+        case 'authChoice':
+          return { ...state, authSel: (state.authSel + 1) % 2 };
         case 'home': {
           const menu = getHomeMenu();
           const menuSel = Math.min(state.menuSel, menu.length - 1);
@@ -118,13 +116,19 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
 
     case 'BACK': {
       switch (state.phase) {
+        case 'authChoice':
+          return { ...state, phase: 'off', authSel: 0 };
         case 'createId':
+        case 'loginId':
+          if (state.entryText.length > 0) {
+            return { ...state, entryText: state.entryText.slice(0, -1) };
+          }
+          return { ...state, phase: 'authChoice', entryText: '' };
         case 'composeId':
           if (state.entryText.length > 0) {
             return { ...state, entryText: state.entryText.slice(0, -1) };
           }
-          if (state.phase === 'composeId') return { ...state, phase: 'home' };
-          return state;
+          return { ...state, phase: 'home' };
         case 'createPw':
           if (state.entryText.length > 0) {
             return { ...state, entryText: state.entryText.slice(0, -1) };
@@ -164,15 +168,19 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
     case 'OK': {
       switch (state.phase) {
         case 'off': {
-          const boot = { flash: true, flashKind: 'welcome' as const };
-          if (!state.hasId) return { ...state, ...boot, phase: 'createId', entryText: '' };
-          if (!state.hasPw) return { ...state, ...boot, phase: 'createPw', entryText: '' };
-          return { ...state, ...boot, phase: 'login', entryText: '', entryError: false };
+          if (!state.hasId) return { ...state, phase: 'authChoice', entryText: '', authSel: 0 };
+          if (!state.hasPw) return { ...state, phase: 'createPw', entryText: '' };
+          return { ...state, phase: 'login', entryText: '', entryError: false };
         }
-        // 'createId' OK is handled by the component: it must check the server
-        // for whether the typed ID already exists before deciding to go to
-        // 'login' (existing account) or 'createPw' (new account) — see
-        // ID_EXISTS / ID_NEW.
+        case 'authChoice':
+          return state.authSel === 0
+            ? { ...state, phase: 'createId', entryText: '' }
+            : { ...state, phase: 'loginId', entryText: '' };
+        // 'createId' and 'loginId' OK are handled by the component: it must
+        // check the server for whether the typed ID exists before deciding
+        // whether to proceed (ID taken / not found are both errors here,
+        // since the user already chose sign-up vs log-in) — see
+        // ID_EXISTS / ID_NEW / API_ERROR.
         case 'createPw': {
           if (state.entryText.length < MIN_PW_LENGTH) return state;
           return { ...state, pendingPw: state.entryText, entryText: '', phase: 'confirmPw' };
@@ -257,9 +265,6 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
     case 'SET_SEARCH_TEXT':
       return { ...state, searchText: action.text, presetSel: 0 };
 
-    case 'FLASH_OFF':
-      return { ...state, flash: false };
-
     case 'BUSY_START':
       return { ...state, busy: true, apiError: null };
 
@@ -289,7 +294,7 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
       };
 
     case 'LOGOUT':
-      return { ...initialPagerState, phase: 'createId' };
+      return { ...initialPagerState, phase: 'authChoice' };
 
     case 'AUTH_SUCCESS':
       return {
@@ -349,25 +354,8 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
     case 'API_ERROR_CLEAR':
       return { ...state, apiError: null };
 
-    case 'MESSAGES_LOADED':
+    case 'MESSAGES_UPDATED':
       return { ...state, msgs: action.msgs, requests: action.requests };
-
-    case 'MESSAGES_SYNCED': {
-      const oldMsgIds = new Set(state.msgs.map((m) => m.id));
-      const oldReqIds = new Set(state.requests.map((m) => m.id));
-      const hasNewMsg = action.msgs.some((m) => !oldMsgIds.has(m.id));
-      const hasNewReq = action.requests.some((m) => !oldReqIds.has(m.id));
-      if (!hasNewMsg && !hasNewReq) {
-        return { ...state, msgs: action.msgs, requests: action.requests };
-      }
-      return {
-        ...state,
-        msgs: action.msgs,
-        requests: action.requests,
-        flash: true,
-        flashKind: hasNewReq ? 'request' : 'message',
-      };
-    }
 
     default:
       return state;

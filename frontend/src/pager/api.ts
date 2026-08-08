@@ -71,13 +71,6 @@ export function login(id: string, password: string) {
   });
 }
 
-export function resetPassword(id: string, newPassword: string) {
-  return request<ApiAccount>('/accounts/reset-password', {
-    method: 'POST',
-    body: JSON.stringify({ id, new_password: newPassword }),
-  });
-}
-
 export function sendMessage(fromId: string, toId: string, code: string) {
   return request<ApiMessage>('/messages/send', {
     method: 'POST',

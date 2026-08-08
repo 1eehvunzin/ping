@@ -24,7 +24,6 @@ against the frontend.
 
 - `POST /accounts/register` `{id, password}`
 - `POST /accounts/login` `{id, password}`
-- `POST /accounts/reset-password` `{id, new_password}`
 - `GET /accounts/{id}`
 - `POST /messages/send` `{from_id, to_id, code}`
 - `GET /messages/{id}/inbox`

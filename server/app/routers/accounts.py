@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from ..schemas import AccountOut, LoginRequest, RegisterRequest, ResetPasswordRequest
+from ..schemas import AccountOut, LoginRequest, RegisterRequest
 from ..store import StoreError, store
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -33,15 +33,6 @@ def register(body: RegisterRequest):
 def login(body: LoginRequest):
     try:
         account = store.login(body.id.upper(), body.password)
-    except StoreError as e:
-        _raise(e)
-    return _out(account)
-
-
-@router.post("/reset-password", response_model=AccountOut)
-def reset_password(body: ResetPasswordRequest):
-    try:
-        account = store.reset_password(body.id.upper(), body.new_password)
     except StoreError as e:
         _raise(e)
     return _out(account)

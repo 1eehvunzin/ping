@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, type CSSProperties, type KeyboardEvent } from 'react';
-import { ApiError, approveRequest, declineRequest, getAccount, getInbox, getRequests, login, markRead, register, resetPassword, sendMessage } from './api';
+import { ApiError, approveRequest, declineRequest, getAccount, getInbox, getRequests, login, markRead, register, sendMessage } from './api';
 import { BACKLIGHT_PALETTES, MAX_ID_LENGTH, MAX_PW_LENGTH, MIN_ID_LENGTH, MIN_PW_LENGTH, OFF_PALETTE, PRESETS, filterPresets, getHomeMenu } from './data';
 import { initialPagerState, pagerReducer, type PagerState } from './reducer';
 import { clearSession, loadSession, saveSession } from './session';
@@ -17,10 +17,18 @@ const STAGE_MARGIN = 24;
 const POLL_INTERVAL_MS = 4000;
 
 const PW_PHASES: ReadonlySet<Phase> = new Set(['createPw', 'confirmPw', 'login']);
-const ENTRY_PHASES: ReadonlySet<Phase> = new Set(['createId', 'composeId', 'createPw', 'confirmPw', 'login']);
+const ENTRY_PHASES: ReadonlySet<Phase> = new Set(['createId', 'loginId', 'composeId', 'createPw', 'confirmPw', 'login']);
+// Phases before the user is authenticated — no point polling the server yet.
+const PRE_AUTH_PHASES: ReadonlySet<Phase> = new Set(['off', 'authChoice', 'createId', 'loginId', 'createPw', 'confirmPw', 'login']);
+
+const AUTH_CHOICES = [
+  { label: 'SIGN UP' },
+  { label: 'LOG IN' },
+];
 
 const ENTRY_TITLES: Partial<Record<Phase, string>> = {
-  createId: 'WELCOME TO ping · ENTER ID',
+  createId: 'CREATE YOUR ID',
+  loginId: 'ENTER YOUR ID',
   composeId: 'ENTER FRIEND ID',
   createPw: 'SET PASSWORD',
   confirmPw: 'CONFIRM PASSWORD',
@@ -28,10 +36,12 @@ const ENTRY_TITLES: Partial<Record<Phase, string>> = {
 
 const LEGEND: Record<string, { next: string; back: string; ok: string }> = {
   off: { next: '', back: '', ok: 'PWR' },
+  authChoice: { next: 'MOVE', back: 'OFF', ok: 'SELECT' },
   createId: { next: '—', back: 'ERASE', ok: 'OK' },
+  loginId: { next: '—', back: 'ERASE', ok: 'OK' },
   createPw: { next: '—', back: 'ERASE', ok: 'OK' },
   confirmPw: { next: '—', back: 'ERASE', ok: 'OK' },
-  login: { next: 'FORGOT PW', back: 'ERASE', ok: 'OK' },
+  login: { next: '', back: 'ERASE', ok: 'OK' },
   composeId: { next: '—', back: 'ERASE', ok: 'OK' },
   home: { next: 'SCROLL', back: 'OFF', ok: 'PICK' },
   pickMsg: { next: 'SCROLL', back: 'BACK', ok: 'SEND' },
@@ -91,26 +101,21 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
   }, [state.phase]);
 
   useEffect(() => {
-    if (!state.flash) return;
-    const t = setTimeout(() => dispatch({ type: 'FLASH_OFF' }), 1800);
-    return () => clearTimeout(t);
-  }, [state.flash]);
-
-  useEffect(() => {
     if (!state.apiError) return;
     const t = setTimeout(() => dispatch({ type: 'API_ERROR_CLEAR' }), 3000);
     return () => clearTimeout(t);
   }, [state.apiError]);
 
-  // Poll the server for new inbox/request messages while the device is on.
+  // Poll the server for new inbox/request messages once authenticated.
   useEffect(() => {
     if (!state.hasId || !isOn) return;
     let cancelled = false;
     const poll = async () => {
-      const id = stateRef.current.myId;
+      const cur = stateRef.current;
+      if (PRE_AUTH_PHASES.has(cur.phase)) return;
       try {
-        const [msgs, requests] = await Promise.all([getInbox(id), getRequests(id)]);
-        if (!cancelled) dispatch({ type: 'MESSAGES_SYNCED', msgs, requests });
+        const [msgs, requests] = await Promise.all([getInbox(cur.myId), getRequests(cur.myId)]);
+        if (!cancelled) dispatch({ type: 'MESSAGES_UPDATED', msgs, requests });
       } catch {
         // transient poll failure — try again on the next tick
       }
@@ -132,7 +137,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
       dispatch({ type: 'BUSY_START' });
       try {
         await getAccount(s.entryText);
-        dispatch({ type: 'ID_EXISTS', myId: s.entryText });
+        dispatch({ type: 'API_ERROR', message: 'ID_TAKEN' });
       } catch (e) {
         const code = errCode(e);
         if (code === 'NOT_FOUND') {
@@ -140,6 +145,18 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
         } else {
           dispatch({ type: 'API_ERROR', message: code });
         }
+      }
+      return;
+    }
+
+    if (s.phase === 'loginId') {
+      if (s.entryText.length < MIN_ID_LENGTH) return;
+      dispatch({ type: 'BUSY_START' });
+      try {
+        await getAccount(s.entryText);
+        dispatch({ type: 'ID_EXISTS', myId: s.entryText });
+      } catch (e) {
+        dispatch({ type: 'API_ERROR', message: errCode(e) });
       }
       return;
     }
@@ -162,9 +179,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
       }
       dispatch({ type: 'BUSY_START' });
       try {
-        const account = s.isResetFlow
-          ? await resetPassword(s.myId, s.entryText)
-          : await register(s.myId, s.entryText);
+        const account = await register(s.myId, s.entryText);
         saveSession({ myId: account.id, hasPw: true });
         dispatch({ type: 'AUTH_SUCCESS', myId: account.id });
       } catch (e) {
@@ -331,12 +346,6 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
               <div className="pager-lcd-lines" />
               <div className="pager-lcd-sheen" />
 
-              {state.flash && (
-                <div className="pager-flash">
-                  {state.flashKind === 'request' ? '*MESSAGE REQUEST*' : '*NEW MESSAGE*'}
-                </div>
-              )}
-
               {!isOn && <div className="pager-off-screen">PRESS ● POWER</div>}
 
               {isOn && (
@@ -363,17 +372,28 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                   </div>
 
                   <div className="pager-content">
+                    {state.phase === 'authChoice' && (
+                      <div className="pager-home">
+                        <div className="pager-home-title">WELCOME TO ping</div>
+                        {AUTH_CHOICES.map((choice, i) => (
+                          <div
+                            key={choice.label}
+                            className={`pager-menu-item ${i === state.authSel ? 'is-selected' : ''}`}
+                          >
+                            <span className="pager-menu-mark">{i === state.authSel ? '>' : ' '}</span>
+                            {choice.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {ENTRY_PHASES.has(state.phase) && (() => {
                       const isPw = PW_PHASES.has(state.phase);
                       const entryMin = isPw ? MIN_PW_LENGTH : MIN_ID_LENGTH;
                       const entryMax = isPw ? MAX_PW_LENGTH : MAX_ID_LENGTH;
                       const title = state.phase === 'login'
                         ? `WELCOME BACK · ${state.myId}`
-                        : state.phase === 'confirmPw' && state.isResetFlow
-                          ? 'CONFIRM NEW PASSWORD'
-                          : state.phase === 'createPw' && state.isResetFlow
-                            ? 'SET NEW PASSWORD'
-                            : ENTRY_TITLES[state.phase];
+                        : ENTRY_TITLES[state.phase];
                       return (
                         <div className="pager-entry">
                           <div className="pager-entry-title">{title}</div>
@@ -404,7 +424,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                           {state.apiError && (
                             <div className="pager-entry-warn">⚠ {friendlyError(state.apiError)}</div>
                           )}
-                          {state.busy && (state.phase === 'createId' || state.phase === 'confirmPw' || state.phase === 'login') && (
+                          {state.busy && (state.phase === 'createId' || state.phase === 'loginId' || state.phase === 'confirmPw' || state.phase === 'login') && (
                             <div className="pager-entry-hint">확인 중...</div>
                           )}
                           <input

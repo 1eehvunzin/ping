@@ -13,11 +13,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class ResetPasswordRequest(BaseModel):
-    id: str
-    new_password: str = Field(min_length=4, max_length=16)
-
-
 class SendMessageRequest(BaseModel):
     from_id: str
     to_id: str
