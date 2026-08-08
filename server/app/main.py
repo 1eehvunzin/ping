@@ -18,7 +18,7 @@ app = FastAPI(title="ping API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "https://ping-device.vercel.app"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
