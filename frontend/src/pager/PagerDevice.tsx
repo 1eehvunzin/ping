@@ -436,6 +436,10 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                             onKeyDown={handleEntryKeyDown}
                             maxLength={entryMax}
                             autoFocus
+                            lang="en"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
                           />
                         </div>
                       );
@@ -486,6 +490,10 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                           value={state.searchText}
                           onChange={(e) => dispatch({ type: 'SET_SEARCH_TEXT', text: e.target.value })}
                           onKeyDown={handleSearchKeyDown}
+                          lang="ko"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
                         />
                       </div>
                     )}
