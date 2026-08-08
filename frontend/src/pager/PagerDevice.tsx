@@ -297,6 +297,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
 
   const unread = state.msgs.filter((m) => !m.read).length;
   const total = state.msgs.length;
+  const pendingRequests = state.requests.length;
 
   const filteredPresets = filterPresets(state.searchText);
   const pStart = Math.max(0, Math.min(state.presetSel - 1, Math.max(0, filteredPresets.length - 4)));
@@ -359,6 +360,9 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                     <div className="pager-status-right">
                       <span className={`pager-envelope ${unread > 0 ? 'is-blinking' : 'is-idle'}`}>
                         ✉{unread}
+                      </span>
+                      <span className={`pager-request-badge ${pendingRequests > 0 ? 'is-blinking' : 'is-idle'}`}>
+                        🔔{pendingRequests}
                       </span>
                       <div className="pager-battery">
                         <div className="pager-battery-cells">

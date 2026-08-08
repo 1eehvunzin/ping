@@ -153,6 +153,9 @@
 .pager-envelope.is-blinking { animation: blink 1s steps(1) infinite; }
 .pager-envelope.is-idle { opacity: .4; }
 
+.pager-request-badge.is-blinking { animation: blink 1s steps(1) infinite; }
+.pager-request-badge.is-idle { opacity: .4; }
+
 .pager-battery {
   display: flex;
   align-items: center;
