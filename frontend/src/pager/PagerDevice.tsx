@@ -1,10 +1,9 @@
 import { useEffect, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { toPng } from 'html-to-image';
 import { ApiError, approveRequest, declineRequest, getAccount, getInbox, getRequests, login, markRead, register, sendMessage } from './api';
 import { BACKLIGHT_PALETTES, MAX_ID_LENGTH, MAX_PW_LENGTH, MIN_ID_LENGTH, MIN_PW_LENGTH, OFF_PALETTE, PRESETS, filterPresets, getHomeMenu } from './data';
 import { initialPagerState, pagerReducer, type PagerState } from './reducer';
 import { clearSession, loadSession, saveSession } from './session';
-import type { Backlight, Phase } from './types';
+import type { Backlight, PagerMessage, Phase } from './types';
 import { useDeviceScale } from './useDeviceScale';
 import './PagerDevice.css';
 
@@ -79,12 +78,206 @@ function initState(seed: PagerState): PagerState {
   return { ...seed, myId: session.myId, hasId: true, hasPw: session.hasPw };
 }
 
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Character-by-character wrapping (rather than word-splitting) handles mixed
+// Korean/digit content without needing per-language logic.
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  if (!text) return [''];
+  const lines: string[] = [];
+  let current = '';
+  for (const ch of text) {
+    const attempt = current + ch;
+    if (current && ctx.measureText(attempt).width > maxWidth) {
+      lines.push(current);
+      current = ch;
+    } else {
+      current = attempt;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [''];
+}
+
+interface StoryPalette {
+  bg: string;
+  bg2: string;
+  ink: string;
+}
+
+// Renders a story-ratio (9:16) PNG of the message screen by drawing the
+// pager device directly with Canvas 2D primitives — deliberately not a DOM
+// screenshot (html-to-image/html2canvas etc), since those go through an SVG
+// foreignObject step that produces a torn/duplicated-seam image on iOS
+// Safari for content like this (nested gradients + running animations).
+async function buildStoryDataUrl(
+  msg: PagerMessage,
+  meaning: string,
+  pal: StoryPalette,
+): Promise<string> {
+  const canvasWidth = 1080;
+  const canvasHeight = Math.round((canvasWidth * 16) / 9);
+  const sideMargin = 60;
+  const deviceWidth = canvasWidth - sideMargin * 2;
+  const scale = deviceWidth / DEVICE_WIDTH;
+  const deviceHeight = Math.round(DEVICE_HEIGHT * scale);
+  const deviceX = sideMargin;
+  const deviceY = Math.round((canvasHeight - deviceHeight) / 2);
+  const px = (n: number) => n * scale;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d context unavailable');
+
+  await document.fonts.ready;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  // Device shell
+  roundRectPath(ctx, deviceX, deviceY, deviceWidth, deviceHeight, px(34));
+  const deviceGrad = ctx.createLinearGradient(deviceX, deviceY, deviceX + deviceWidth, deviceY + deviceHeight);
+  deviceGrad.addColorStop(0, '#54565a');
+  deviceGrad.addColorStop(0.3, '#45474b');
+  deviceGrad.addColorStop(0.62, '#37393c');
+  deviceGrad.addColorStop(1, '#2c2e30');
+  ctx.fillStyle = deviceGrad;
+  ctx.fill();
+
+  const devicePad = px(26);
+  const bezelX = deviceX + devicePad;
+  const bezelY = deviceY + devicePad;
+  const bezelWidth = deviceWidth - devicePad * 2;
+  const bezelHeight = px(300);
+
+  roundRectPath(ctx, bezelX, bezelY, bezelWidth, bezelHeight, px(14));
+  const bezelGrad = ctx.createLinearGradient(bezelX, bezelY, bezelX + bezelWidth, bezelY + bezelHeight);
+  bezelGrad.addColorStop(0, '#101010');
+  bezelGrad.addColorStop(1, '#1c1c1c');
+  ctx.fillStyle = bezelGrad;
+  ctx.fill();
+
+  const bezelPad = px(14);
+  const lcdX = bezelX + bezelPad;
+  const lcdY = bezelY + bezelPad;
+  const lcdWidth = bezelWidth - bezelPad * 2;
+  const lcdHeight = bezelHeight - bezelPad * 2;
+
+  ctx.save();
+  roundRectPath(ctx, lcdX, lcdY, lcdWidth, lcdHeight, px(3));
+  ctx.clip();
+
+  const lcdGrad = ctx.createRadialGradient(
+    lcdX + lcdWidth * 0.5, lcdY + lcdHeight * 0.38, 0,
+    lcdX + lcdWidth * 0.5, lcdY + lcdHeight * 0.38, lcdWidth * 0.75,
+  );
+  lcdGrad.addColorStop(0, pal.bg);
+  lcdGrad.addColorStop(1, pal.bg2);
+  ctx.fillStyle = lcdGrad;
+  ctx.fillRect(lcdX, lcdY, lcdWidth, lcdHeight);
+
+  // Dot-matrix grid texture, drawn once into a small tile and repeated —
+  // far cheaper than stroking thousands of individual grid lines.
+  const tileSize = Math.max(2, Math.round(px(3)));
+  const tile = document.createElement('canvas');
+  tile.width = tileSize;
+  tile.height = tileSize;
+  const tileCtx = tile.getContext('2d');
+  if (tileCtx) {
+    tileCtx.strokeStyle = 'rgba(0,0,0,.08)';
+    tileCtx.lineWidth = 1;
+    tileCtx.beginPath();
+    tileCtx.moveTo(0, 0.5);
+    tileCtx.lineTo(tileSize, 0.5);
+    tileCtx.moveTo(0.5, 0);
+    tileCtx.lineTo(0.5, tileSize);
+    tileCtx.stroke();
+    const pattern = ctx.createPattern(tile, 'repeat');
+    if (pattern) {
+      ctx.fillStyle = pattern;
+      ctx.fillRect(lcdX, lcdY, lcdWidth, lcdHeight);
+    }
+  }
+
+  // LCD content
+  const contentPadX = px(18);
+  const contentPadY = px(12);
+  const contentX = lcdX + contentPadX;
+  const contentWidth = lcdWidth - contentPadX * 2;
+
+  ctx.fillStyle = pal.ink;
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `${px(20)}px "DotGothic16", monospace`;
+  let cursorY = lcdY + contentPadY + px(20);
+  ctx.textAlign = 'left';
+  ctx.fillText(msg.from.toUpperCase(), contentX, cursorY);
+  ctx.textAlign = 'right';
+  ctx.fillText(msg.time, contentX + contentWidth, cursorY);
+  ctx.textAlign = 'left';
+
+  cursorY += px(6);
+  ctx.strokeStyle = pal.ink;
+  ctx.lineWidth = px(3);
+  ctx.beginPath();
+  ctx.moveTo(contentX, cursorY);
+  ctx.lineTo(contentX + contentWidth, cursorY);
+  ctx.stroke();
+
+  const bodyTop = cursorY + px(10);
+  const bodyBottom = lcdY + lcdHeight - contentPadY;
+  const codeFontSize = px(44);
+  const meaningFontSize = px(19);
+  const codeLineHeight = codeFontSize * 1.05;
+  const meaningLineHeight = meaningFontSize * 1.1;
+  const blockGap = px(10);
+
+  ctx.font = `${codeFontSize}px "DotGothic16", monospace`;
+  const codeLines = wrapText(ctx, msg.text, contentWidth);
+  ctx.font = `${meaningFontSize}px "DotGothic16", monospace`;
+  const meaningLines = wrapText(ctx, meaning, contentWidth);
+
+  const blockHeight = codeLines.length * codeLineHeight + blockGap + meaningLines.length * meaningLineHeight;
+  let y = bodyTop + Math.max(0, (bodyBottom - bodyTop - blockHeight) / 2) + codeLineHeight * 0.8;
+
+  ctx.font = `${codeFontSize}px "DotGothic16", monospace`;
+  for (const line of codeLines) {
+    ctx.fillText(line, contentX, y);
+    y += codeLineHeight;
+  }
+  y += blockGap - codeLineHeight + meaningLineHeight * 0.8;
+  ctx.font = `${meaningFontSize}px "DotGothic16", monospace`;
+  ctx.globalAlpha = 0.85;
+  for (const line of meaningLines) {
+    ctx.fillText(line, contentX, y);
+    y += meaningLineHeight;
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // "ping" wordmark below the bezel
+  ctx.fillStyle = '#1e2022';
+  ctx.font = `800 ${px(56)}px "Pretendard Variable", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText('ping', bezelX + px(10), bezelY + bezelHeight + px(16) + px(56) * 0.78);
+
+  return canvas.toDataURL('image/png');
+}
+
 export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
   const [state, dispatch] = useReducer(pagerReducer, initialPagerState, initState);
   const scale = useDeviceScale(DEVICE_WIDTH, STAGE_MARGIN);
   const entryInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const deviceRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const [toast, setToast] = useState<string | null>(null);
@@ -158,49 +351,15 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
   }
 
   async function handleSaveStory() {
-    const node = deviceRef.current;
-    if (!node || savingStory) return;
+    if (savingStory) return;
+    const s = stateRef.current;
+    const msg = s.msgs[s.sel];
+    if (!msg) return;
+    const meaning = PRESETS.find((p) => p.code === msg.text)?.meaning ?? '';
     setSavingStory(true);
-    // The LCD flicker / cursor / envelope / menu-dot blink are infinite CSS
-    // animations. Capturing a subtree with animations still running mid-flight
-    // is a known trigger for a torn/duplicated-seam image on iOS Safari's
-    // foreignObject rendering — freeze them for the duration of the capture.
-    node.classList.add('pager-capturing');
     try {
-      const deviceDataUrl = await toPng(node, {
-        pixelRatio: 3,
-        backgroundColor: '#ffffff',
-        skipFonts: true,
-      });
-      const deviceImg = new Image();
-      await new Promise<void>((resolve, reject) => {
-        deviceImg.onload = () => resolve();
-        deviceImg.onerror = () => reject(new Error('device image load failed'));
-        deviceImg.src = deviceDataUrl;
-      });
-
-      const canvasWidth = 1080;
-      const canvasHeight = Math.round((canvasWidth * 16) / 9);
-      const sideMargin = 60;
-      const targetDeviceWidth = canvasWidth - sideMargin * 2;
-      const targetDeviceHeight = Math.round((targetDeviceWidth * deviceImg.height) / deviceImg.width);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = canvasWidth;
-      canvas.height = canvasHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('canvas 2d context unavailable');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-      ctx.drawImage(
-        deviceImg,
-        Math.round((canvasWidth - targetDeviceWidth) / 2),
-        Math.round((canvasHeight - targetDeviceHeight) / 2),
-        targetDeviceWidth,
-        targetDeviceHeight,
-      );
-
-      const dataUrl = canvas.toDataURL('image/png');
+      const pal = BACKLIGHT_PALETTES[backlight];
+      const dataUrl = await buildStoryDataUrl(msg, meaning, pal);
       const fileName = `ping-story-${Date.now()}.png`;
 
       if (navigator.canShare && navigator.share) {
@@ -223,7 +382,6 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
     } catch {
       setToast('이미지 생성에 실패했어요');
     } finally {
-      node.classList.remove('pager-capturing');
       setSavingStory(false);
     }
   }
@@ -437,7 +595,6 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
         style={{ width: DEVICE_WIDTH * scale, height: DEVICE_HEIGHT * scale }}
       >
         <div
-          ref={deviceRef}
           className="pager-device"
           style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}
         >
