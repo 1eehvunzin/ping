@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { ApiError, approveRequest, declineRequest, getAccount, getInbox, getRequests, login, markRead, register, sendMessage } from './api';
+import { ApiError, approveRequest, declineRequest, getAccount, getFriends, getInbox, getRequests, login, markRead, register, sendMessage } from './api';
 import { BACKLIGHT_PALETTES, MAX_ID_LENGTH, MAX_PW_LENGTH, MIN_ID_LENGTH, MIN_PW_LENGTH, OFF_PALETTE, PRESETS, filterPresets, getHomeMenu } from './data';
 import { initialPagerState, pagerReducer, type PagerState } from './reducer';
 import { clearSession, loadSession, saveSession } from './session';
@@ -51,6 +51,7 @@ const LEGEND: Record<string, { next: string; back: string; ok: string }> = {
   message: { next: 'NEXT', back: 'INBOX', ok: 'REPLY' },
   requests: { next: 'SCROLL', back: 'HOME', ok: 'VIEW' },
   requestDetail: { next: '', back: 'DECLINE', ok: 'APPROVE' },
+  friends: { next: 'SCROLL', back: 'HOME', ok: '' },
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -512,8 +513,12 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
       const cur = stateRef.current;
       if (PRE_AUTH_PHASES.has(cur.phase)) return;
       try {
-        const [msgs, requests] = await Promise.all([getInbox(cur.myId), getRequests(cur.myId)]);
-        if (!cancelled) dispatch({ type: 'MESSAGES_UPDATED', msgs, requests });
+        const [msgs, requests, friends] = await Promise.all([
+          getInbox(cur.myId),
+          getRequests(cur.myId),
+          getFriends(cur.myId),
+        ]);
+        if (!cancelled) dispatch({ type: 'MESSAGES_UPDATED', msgs, requests, friends });
       } catch {
         // transient poll failure — try again on the next tick
       }
@@ -772,6 +777,9 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
   const curRequest = state.requests[state.reqSel];
   const curRequestMeaning = curRequest ? (PRESETS.find((p) => p.code === curRequest.text)?.meaning ?? '') : '';
 
+  const iFriendStart = Math.max(0, Math.min(state.friendSel - 1, Math.max(0, state.friends.length - 4)));
+  const visibleFriends = state.friends.slice(iFriendStart, iFriendStart + 4).map((f, i) => ({ id: f, idx: iFriendStart + i }));
+
   const legend = LEGEND[state.phase];
   const ledColor = isOn ? '#c4c7cb' : '#3a3c3f';
   const ledShadow = isOn ? '0 0 8px rgba(180,215,242,.85)' : 'none';
@@ -974,7 +982,10 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
 
                     {state.phase === 'inbox' && (
                       <div className="pager-inbox">
-                        <div className="pager-inbox-title">INBOX {total} MSG</div>
+                        <div className="pager-inbox-title">
+                          {state.msgsLoaded ? `INBOX ${total} MSG` : 'INBOX'}
+                        </div>
+                        {!state.msgsLoaded && <div className="pager-pickmsg-hint">불러오는 중...</div>}
                         {visibleMsgs.map((m) => (
                           <div
                             key={m.id}
@@ -1006,8 +1017,13 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                     {state.phase === 'requests' && (
                       <div className="pager-inbox">
                         <div className="pager-inbox-title">
-                          {state.requests.length ? `REQUESTS ${state.requests.length}` : 'NO REQUESTS'}
+                          {!state.msgsLoaded
+                            ? 'REQUESTS'
+                            : state.requests.length
+                              ? `REQUESTS ${state.requests.length}`
+                              : 'NO REQUESTS'}
                         </div>
+                        {!state.msgsLoaded && <div className="pager-pickmsg-hint">불러오는 중...</div>}
                         {visibleRequests.map((m) => (
                           <div
                             key={m.id}
@@ -1033,11 +1049,33 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
                           <div className="pager-message-meaning">{curRequestMeaning}</div>
                         </div>
                         <div className="pager-message-idx">
-                          {state.busy ? '처리 중...' : '모르는 상대예요 · 받을까요?'}
+                          {state.busy ? '처리 중...' : '친구 요청이에요 · 받을까요?'}
                         </div>
                         {state.apiError && (
                           <div className="pager-entry-warn">⚠ {friendlyError(state.apiError)}</div>
                         )}
+                      </div>
+                    )}
+
+                    {state.phase === 'friends' && (
+                      <div className="pager-inbox">
+                        <div className="pager-inbox-title">
+                          {!state.msgsLoaded
+                            ? 'FRIENDS'
+                            : state.friends.length
+                              ? `FRIENDS ${state.friends.length}`
+                              : 'NO FRIENDS'}
+                        </div>
+                        {!state.msgsLoaded && <div className="pager-pickmsg-hint">불러오는 중...</div>}
+                        {visibleFriends.map((f) => (
+                          <div
+                            key={f.id}
+                            className={`pager-inbox-row ${f.idx === state.friendSel ? 'is-selected' : ''}`}
+                          >
+                            <span className="pager-inbox-dot">·</span>
+                            <span className="pager-inbox-from">{f.id}</span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

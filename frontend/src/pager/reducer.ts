@@ -23,6 +23,9 @@ export interface PagerState {
   reqSel: number;
   msgs: PagerMessage[];
   requests: PagerMessage[];
+  msgsLoaded: boolean;
+  friends: string[];
+  friendSel: number;
 }
 
 export const initialPagerState: PagerState = {
@@ -47,6 +50,9 @@ export const initialPagerState: PagerState = {
   reqSel: 0,
   msgs: [],
   requests: [],
+  msgsLoaded: false,
+  friends: [],
+  friendSel: 0,
 };
 
 export type PagerAction =
@@ -70,7 +76,7 @@ export type PagerAction =
   | { type: 'REQUEST_DECLINED' }
   | { type: 'API_ERROR'; message: string }
   | { type: 'API_ERROR_CLEAR' }
-  | { type: 'MESSAGES_UPDATED'; msgs: PagerMessage[]; requests: PagerMessage[] };
+  | { type: 'MESSAGES_UPDATED'; msgs: PagerMessage[]; requests: PagerMessage[]; friends: string[] };
 
 const PW_PHASES: ReadonlySet<Phase> = new Set(['createPw', 'confirmPw', 'login']);
 
@@ -109,6 +115,8 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
         }
         case 'requests':
           return { ...state, reqSel: (state.reqSel + 1) % Math.max(1, state.requests.length) };
+        case 'friends':
+          return { ...state, friendSel: (state.friendSel + 1) % Math.max(1, state.friends.length) };
         default:
           return state;
       }
@@ -158,6 +166,8 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
           return { ...state, phase: 'pickMsg' };
         case 'requests':
           return { ...state, phase: 'home', menuSel: 0 };
+        case 'friends':
+          return { ...state, phase: 'home', menuSel: 0 };
         // 'requestDetail' BACK (decline) is handled by the component, since it
         // requires a server round-trip; see REQUEST_DECLINED.
         default:
@@ -205,6 +215,7 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
           const key = menu[menuSel].key;
           if (key === 'send') return { ...state, phase: 'composeId', entryText: '' };
           if (key === 'requests') return { ...state, phase: 'requests', reqSel: 0 };
+          if (key === 'friends') return { ...state, phase: 'friends', friendSel: 0 };
           // 'logout' is handled by the component: it clears the saved session
           // before dispatching LOGOUT (see below).
           return { ...state, phase: 'inbox', sel: 0 };
@@ -308,6 +319,7 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
         entryError: false,
         phase: 'home',
         menuSel: 0,
+        msgsLoaded: false,
       };
 
     case 'AUTH_FAILED':
@@ -329,11 +341,15 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
     case 'REQUEST_APPROVED': {
       const approved = state.requests[state.reqSel];
       if (!approved) return { ...state, busy: false, phase: 'requests' };
+      const friends = state.friends.includes(approved.from)
+        ? state.friends
+        : [...state.friends, approved.from].sort();
       return {
         ...state,
         busy: false,
         requests: state.requests.filter((_, idx) => idx !== state.reqSel),
         msgs: [{ ...approved, read: false }, ...state.msgs].slice(0, 9),
+        friends,
         reqSel: 0,
         phase: 'requests',
       };
@@ -355,7 +371,7 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
       return { ...state, apiError: null };
 
     case 'MESSAGES_UPDATED':
-      return { ...state, msgs: action.msgs, requests: action.requests };
+      return { ...state, msgs: action.msgs, requests: action.requests, friends: action.friends, msgsLoaded: true };
 
     default:
       return state;

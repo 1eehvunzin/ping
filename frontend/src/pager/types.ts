@@ -14,7 +14,8 @@ export type Phase =
   | 'inbox'
   | 'message'
   | 'requests'
-  | 'requestDetail';
+  | 'requestDetail'
+  | 'friends';
 
 export type Backlight = 'ice' | 'green' | 'amber' | 'blue';
 

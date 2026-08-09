@@ -54,14 +54,24 @@ def _load_account(session, id: str) -> Account | None:
         .limit(9)
         .all()
     ]
-    requests = [
-        _message_out(m)
-        for m in session.query(MessageRow)
+    # One row per sender — a friend request, not a per-message queue. If an
+    # unknown sender pings you three times before you respond, that's still
+    # a single request to accept or decline, not three.
+    pending_rows = (
+        session.query(MessageRow)
         .filter_by(to_id=id, status="request")
         .order_by(MessageRow.id.desc())
-        .limit(9)
         .all()
-    ]
+    )
+    seen_senders: set[str] = set()
+    requests = []
+    for m in pending_rows:
+        if m.from_id in seen_senders:
+            continue
+        seen_senders.add(m.from_id)
+        requests.append(_message_out(m))
+        if len(requests) >= 9:
+            break
     return Account(row.id, row.password, known_senders, inbox, requests)
 
 
@@ -133,16 +143,25 @@ class Store:
             )
             if not row:
                 raise StoreError("REQUEST_NOT_FOUND")
-            row.status = "inbox"
-            row.read = False
+            sender_id = row.from_id
+            # Accepting the friend request releases every message they sent
+            # while pending, not just the one that happened to represent it.
+            pending = (
+                s.query(MessageRow)
+                .filter_by(to_id=id, from_id=sender_id, status="request")
+                .all()
+            )
+            for m in pending:
+                m.status = "inbox"
+                m.read = False
             already_known = (
                 s.query(KnownSenderRow)
-                .filter_by(account_id=id, sender_id=row.from_id)
+                .filter_by(account_id=id, sender_id=sender_id)
                 .first()
                 is not None
             )
             if not already_known:
-                s.add(KnownSenderRow(account_id=id, sender_id=row.from_id))
+                s.add(KnownSenderRow(account_id=id, sender_id=sender_id))
             s.commit()
             s.refresh(row)
             return _message_out(row)
@@ -157,9 +176,17 @@ class Store:
                 .filter_by(id=message_id, to_id=id, status="request")
                 .first()
             )
-            if row:
-                s.delete(row)
-                s.commit()
+            if not row:
+                return
+            sender_id = row.from_id
+            pending = (
+                s.query(MessageRow)
+                .filter_by(to_id=id, from_id=sender_id, status="request")
+                .all()
+            )
+            for m in pending:
+                s.delete(m)
+            s.commit()
 
     def mark_read(self, id: str, message_id: int) -> None:
         with get_session() as s:

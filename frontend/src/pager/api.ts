@@ -57,6 +57,13 @@ export function getAccount(id: string) {
   return request<ApiAccount>(`/accounts/${id}`);
 }
 
+// known_senders doubles as the friends list — anyone whose request you've
+// approved can message you directly, which is exactly "being friends" here.
+export async function getFriends(id: string): Promise<string[]> {
+  const account = await getAccount(id);
+  return account.known_senders;
+}
+
 export function register(id: string, password: string) {
   return request<ApiAccount>('/accounts/register', {
     method: 'POST',

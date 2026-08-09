@@ -6,7 +6,7 @@ export const MIN_PW_LENGTH = 4;
 export const MAX_PW_LENGTH = 16;
 
 export interface HomeMenuItem {
-  key: 'send' | 'inbox' | 'requests' | 'logout';
+  key: 'send' | 'inbox' | 'requests' | 'friends' | 'logout';
   label: string;
 }
 
@@ -15,6 +15,7 @@ export function getHomeMenu(): HomeMenuItem[] {
     { key: 'send', label: 'SEND MESSAGE' },
     { key: 'inbox', label: 'INBOX' },
     { key: 'requests', label: 'REQUESTS' },
+    { key: 'friends', label: 'FRIENDS' },
     { key: 'logout', label: 'LOG OUT' },
   ];
 }
