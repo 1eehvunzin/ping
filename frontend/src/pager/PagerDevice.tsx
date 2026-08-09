@@ -113,15 +113,41 @@ interface StoryPalette {
   ink: string;
 }
 
+function drawCircleButton(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  label: string,
+  labelFontPx: number,
+) {
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  const grad = ctx.createRadialGradient(cx, cy - r * 0.08, r * 0.1, cx, cy, r);
+  grad.addColorStop(0, '#2b2d30');
+  grad.addColorStop(1, '#333538');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.fillStyle = '#5f6266';
+  ctx.font = `600 ${labelFontPx}px "Barlow Semi Condensed", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(label, cx, cy + r + labelFontPx * 1.6);
+}
+
 // Renders a story-ratio (9:16) PNG of the message screen by drawing the
-// pager device directly with Canvas 2D primitives — deliberately not a DOM
-// screenshot (html-to-image/html2canvas etc), since those go through an SVG
-// foreignObject step that produces a torn/duplicated-seam image on iOS
-// Safari for content like this (nested gradients + running animations).
+// pager device directly with Canvas 2D primitives, mirroring PagerDevice.css
+// — deliberately not a DOM screenshot (html-to-image/html2canvas etc), since
+// those go through an SVG foreignObject step that produces a torn/
+// duplicated-seam image on iOS Safari for content like this (nested
+// gradients + running animations).
 async function buildStoryDataUrl(
   msg: PagerMessage,
   meaning: string,
   pal: StoryPalette,
+  msgIndex: number,
+  msgTotal: number,
 ): Promise<string> {
   const canvasWidth = 1080;
   const canvasHeight = Math.round((canvasWidth * 16) / 9);
@@ -144,7 +170,7 @@ async function buildStoryDataUrl(
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  // Device shell
+  // Device shell — linear-gradient(158deg, #54565a 0%, #45474b 30%, #37393c 62%, #2c2e30 100%)
   roundRectPath(ctx, deviceX, deviceY, deviceWidth, deviceHeight, px(34));
   const deviceGrad = ctx.createLinearGradient(deviceX, deviceY, deviceX + deviceWidth, deviceY + deviceHeight);
   deviceGrad.addColorStop(0, '#54565a');
@@ -160,6 +186,7 @@ async function buildStoryDataUrl(
   const bezelWidth = deviceWidth - devicePad * 2;
   const bezelHeight = px(300);
 
+  // Bezel — linear-gradient(160deg, #101010, #1c1c1c)
   roundRectPath(ctx, bezelX, bezelY, bezelWidth, bezelHeight, px(14));
   const bezelGrad = ctx.createLinearGradient(bezelX, bezelY, bezelX + bezelWidth, bezelY + bezelHeight);
   bezelGrad.addColorStop(0, '#101010');
@@ -177,6 +204,7 @@ async function buildStoryDataUrl(
   roundRectPath(ctx, lcdX, lcdY, lcdWidth, lcdHeight, px(3));
   ctx.clip();
 
+  // LCD — radial-gradient(120% 130% at 50% 38%, --lcd-bg 0%, --lcd-bg2 100%)
   const lcdGrad = ctx.createRadialGradient(
     lcdX + lcdWidth * 0.5, lcdY + lcdHeight * 0.38, 0,
     lcdX + lcdWidth * 0.5, lcdY + lcdHeight * 0.38, lcdWidth * 0.75,
@@ -209,32 +237,85 @@ async function buildStoryDataUrl(
     }
   }
 
-  // LCD content
+  // .pager-on { padding: 12px 18px }
   const contentPadX = px(18);
   const contentPadY = px(12);
   const contentX = lcdX + contentPadX;
   const contentWidth = lcdWidth - contentPadX * 2;
-
   ctx.fillStyle = pal.ink;
+  ctx.strokeStyle = pal.ink;
   ctx.textBaseline = 'alphabetic';
-  ctx.font = `${px(20)}px "DotGothic16", monospace`;
-  let cursorY = lcdY + contentPadY + px(20);
-  ctx.textAlign = 'left';
-  ctx.fillText(msg.from.toUpperCase(), contentX, cursorY);
+
+  // .pager-status-bar — signal bars, envelope, battery
+  const statusFontPx = px(20);
+  let cursorY = lcdY + contentPadY + statusFontPx * 0.82;
+  const signalBaseY = cursorY;
+  const signalBarW = px(5);
+  const signalGap = px(2);
+  [px(7), px(11), px(15)].forEach((h, i) => {
+    ctx.fillRect(contentX + i * (signalBarW + signalGap), signalBaseY - h, signalBarW, h);
+  });
+
+  // battery: 28x14 outline with 4 cells (last one empty), tip on the right
+  const battW = px(28);
+  const battH = px(14);
+  const battX = contentX + contentWidth - battW - px(3);
+  const battY = signalBaseY - battH * 0.85;
+  ctx.lineWidth = px(2);
+  ctx.strokeRect(battX, battY, battW, battH);
+  const cellPad = px(2);
+  const cellGap = px(2);
+  const cellW = (battW - cellPad * 2 - cellGap * 3) / 4;
+  for (let i = 0; i < 4; i++) {
+    if (i >= 3) continue; // last cell rendered empty, matching the live UI
+    ctx.fillRect(battX + cellPad + i * (cellW + cellGap), battY + cellPad, cellW, battH - cellPad * 2);
+  }
+  ctx.fillRect(battX + battW, battY + battH * 0.28, px(3), battH * 0.44);
+
+  ctx.font = `${statusFontPx}px "DotGothic16", monospace`;
   ctx.textAlign = 'right';
-  ctx.fillText(msg.time, contentX + contentWidth, cursorY);
+  ctx.fillText('✉', battX - px(14), signalBaseY);
   ctx.textAlign = 'left';
 
-  cursorY += px(6);
-  ctx.strokeStyle = pal.ink;
+  cursorY += statusFontPx * 0.3 + px(6);
   ctx.lineWidth = px(3);
   ctx.beginPath();
   ctx.moveTo(contentX, cursorY);
   ctx.lineTo(contentX + contentWidth, cursorY);
   ctx.stroke();
 
-  const bodyTop = cursorY + px(10);
-  const bodyBottom = lcdY + lcdHeight - contentPadY;
+  // .pager-message { padding-top: 4px } .pager-message-head
+  cursorY += px(4);
+  const headFontPx = px(15);
+  cursorY += headFontPx * 0.85;
+  ctx.font = `${headFontPx}px "DotGothic16", monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillText(msg.from, contentX, cursorY);
+  ctx.textAlign = 'right';
+  ctx.fillText(msg.time, contentX + contentWidth, cursorY);
+  ctx.textAlign = 'left';
+
+  cursorY += headFontPx * 0.3 + px(6);
+  ctx.lineWidth = px(2);
+  ctx.beginPath();
+  ctx.moveTo(contentX, cursorY);
+  ctx.lineTo(contentX + contentWidth, cursorY);
+  ctx.stroke();
+
+  // Anchor the legend row (and message-idx just above it) to the LCD's
+  // inner bottom edge, working upward — everything above is what's left
+  // over for the vertically-centered message body.
+  const lcdInnerBottom = lcdY + lcdHeight - contentPadY;
+  const legendFontPx = px(17);
+  const legendRowHeight = px(6) + legendFontPx * 1.2;
+  const legendBorderY = lcdInnerBottom - legendRowHeight;
+
+  const idxFontPx = px(12);
+  const idxY = legendBorderY - px(4);
+
+  // .pager-message-body — vertically centered in the remaining space
+  const bodyTop = cursorY + px(6);
+  const bodyBottom = idxY - idxFontPx * 1.4;
   const codeFontSize = px(44);
   const meaningFontSize = px(19);
   const codeLineHeight = codeFontSize * 1.05;
@@ -262,13 +343,83 @@ async function buildStoryDataUrl(
     y += meaningLineHeight;
   }
   ctx.globalAlpha = 1;
+
+  ctx.font = `${idxFontPx}px "DotGothic16", monospace`;
+  ctx.globalAlpha = 0.55;
+  ctx.fillText(`MSG ${msgIndex}/${msgTotal}`, contentX, idxY);
+  ctx.globalAlpha = 1;
+
+  // .pager-legend — border-top 3px, three equal columns
+  const legend = LEGEND.message;
+  ctx.strokeStyle = pal.ink;
+  ctx.lineWidth = px(3);
+  ctx.beginPath();
+  ctx.moveTo(contentX, legendBorderY);
+  ctx.lineTo(contentX + contentWidth, legendBorderY);
+  ctx.stroke();
+
+  const legendTextY = legendBorderY + px(6) + legendFontPx * 0.82;
+  const colWidth = contentWidth / 3;
+  ctx.font = `${legendFontPx}px "DotGothic16", monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`▼${legend.next}`, contentX + colWidth * 0.5, legendTextY);
+  ctx.fillText(`DEL ${legend.back}`, contentX + colWidth * 1.5, legendTextY);
+  ctx.fillText(`●${legend.ok}`, contentX + colWidth * 2.5, legendTextY);
+  ctx.lineWidth = px(2);
+  ctx.beginPath();
+  ctx.moveTo(contentX + colWidth, legendBorderY);
+  ctx.lineTo(contentX + colWidth, legendBorderY + px(4) + legendFontPx * 1.3);
+  ctx.moveTo(contentX + colWidth * 2, legendBorderY);
+  ctx.lineTo(contentX + colWidth * 2, legendBorderY + px(4) + legendFontPx * 1.3);
+  ctx.stroke();
+  ctx.textAlign = 'left';
+
   ctx.restore();
 
-  // "ping" wordmark below the bezel
+  // .pager-label-row { margin-top: 16px; padding: 0 10px } "ping" + LED
+  const labelFontPx = px(56);
+  const labelY = bezelY + bezelHeight + px(16) + labelFontPx * 0.78;
   ctx.fillStyle = '#1e2022';
-  ctx.font = `800 ${px(56)}px "Pretendard Variable", sans-serif`;
+  ctx.font = `800 ${labelFontPx}px "Pretendard Variable", sans-serif`;
   ctx.textAlign = 'left';
-  ctx.fillText('ping', bezelX + px(10), bezelY + bezelHeight + px(16) + px(56) * 0.78);
+  ctx.fillText('ping', bezelX + px(10), labelY);
+  const pingWidth = ctx.measureText('ping').width;
+  ctx.beginPath();
+  ctx.arc(bezelX + px(10) + pingWidth + px(10), labelY - labelFontPx * 0.32, px(5.5), 0, Math.PI * 2);
+  ctx.fillStyle = '#c4c7cb';
+  ctx.shadowColor = 'rgba(180,215,242,.85)';
+  ctx.shadowBlur = px(8);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // .pager-controls-row { margin-top: 18px; padding: 0 6px }
+  const controlsY = bezelY + bezelHeight + px(16) + labelFontPx + px(18);
+  const btnLabelFontPx = px(13);
+  const dpadR = px(37);
+  drawCircleButton(ctx, bezelX + px(6) + dpadR, controlsY + dpadR, dpadR, 'NEXT', btnLabelFontPx);
+  drawCircleButton(ctx, bezelX + px(6) + dpadR * 2 + px(20) + dpadR, controlsY + dpadR, dpadR, 'DEL / ESC', btnLabelFontPx);
+
+  const volumeHeights = [px(20), px(28), px(34), px(28), px(20)];
+  const volumeBarW = px(9);
+  const volumeGap = px(9);
+  const volumeTotalW = volumeHeights.length * volumeBarW + (volumeHeights.length - 1) * volumeGap;
+  const volumeRight = bezelX + bezelWidth - px(6) - px(100) - px(20) - px(6);
+  const volumeLeft = volumeRight - volumeTotalW;
+  ctx.fillStyle = '#242527';
+  volumeHeights.forEach((h, i) => {
+    const bx = volumeLeft + i * (volumeBarW + volumeGap);
+    roundRectPath(ctx, bx, controlsY + dpadR * 2 - h, volumeBarW, h, px(5));
+    ctx.fill();
+  });
+
+  const powerR = px(50);
+  const powerCx = bezelX + bezelWidth - px(6) - powerR;
+  drawCircleButton(ctx, powerCx, controlsY + dpadR * 2 - powerR, powerR, 'POWER / OK', btnLabelFontPx);
+  ctx.beginPath();
+  ctx.arc(powerCx, controlsY + dpadR * 2 - powerR, px(15), 0, Math.PI * 2);
+  ctx.strokeStyle = '#c4c7cb';
+  ctx.lineWidth = px(2.6);
+  ctx.stroke();
 
   return canvas.toDataURL('image/png');
 }
@@ -359,7 +510,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
     setSavingStory(true);
     try {
       const pal = BACKLIGHT_PALETTES[backlight];
-      const dataUrl = await buildStoryDataUrl(msg, meaning, pal);
+      const dataUrl = await buildStoryDataUrl(msg, meaning, pal, s.sel + 1, s.msgs.length);
       const fileName = `ping-story-${Date.now()}.png`;
 
       if (navigator.canShare && navigator.share) {
