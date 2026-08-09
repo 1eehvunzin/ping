@@ -139,8 +139,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
   }, [state.hasId, isOn, state.myId]);
 
   async function handleShareSent() {
-    const s = stateRef.current;
-    const shareText = `[ping] ${s.myId}님이 삐삐 메시지를 보냈어요! 확인해보세요`;
+    const shareText = '[ping] 삐삐- 메시지를 전송했어요 📟';
     const shareUrl = window.location.origin;
     if (navigator.share) {
       try {
@@ -151,7 +150,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(`${shareText} ${shareUrl}`);
+      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
       setToast('링크가 복사됐어요');
     } catch {
       setToast('복사에 실패했어요');
@@ -163,19 +162,16 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
     if (!node || savingStory) return;
     setSavingStory(true);
     try {
-      // Capture the device at a fixed width (ignoring the page's current
-      // responsive scale) so the output size is predictable, leaving side
-      // margins, then letterbox it onto a white 1080x1920 (9:16) canvas.
-      const canvasWidth = 1080;
-      const canvasHeight = Math.round((canvasWidth * 16) / 9);
-      const sideMargin = 60;
-      const targetDeviceWidth = canvasWidth - sideMargin * 2;
-      const captureScale = targetDeviceWidth / DEVICE_WIDTH;
+      // Capture the device at its current on-screen (responsive) size rather
+      // than forcing it to full native width — on iOS Safari, capturing
+      // foreignObject content wider than the actual viewport produces a torn
+      // /duplicated-seam image. pixelRatio supersamples for crispness, and
+      // the fit-to-1080x1920-with-margins resize happens below via drawImage
+      // instead of by inflating the captured node itself.
       const deviceDataUrl = await toPng(node, {
-        pixelRatio: captureScale,
+        pixelRatio: 3,
         backgroundColor: '#ffffff',
         skipFonts: true,
-        style: { transform: 'none' },
       });
       const deviceImg = new Image();
       await new Promise<void>((resolve, reject) => {
@@ -183,6 +179,12 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
         deviceImg.onerror = () => reject(new Error('device image load failed'));
         deviceImg.src = deviceDataUrl;
       });
+
+      const canvasWidth = 1080;
+      const canvasHeight = Math.round((canvasWidth * 16) / 9);
+      const sideMargin = 60;
+      const targetDeviceWidth = canvasWidth - sideMargin * 2;
+      const targetDeviceHeight = Math.round((targetDeviceWidth * deviceImg.height) / deviceImg.width);
 
       const canvas = document.createElement('canvas');
       canvas.width = canvasWidth;
@@ -193,8 +195,10 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
       ctx.drawImage(
         deviceImg,
-        Math.round((canvasWidth - deviceImg.width) / 2),
-        Math.round((canvasHeight - deviceImg.height) / 2),
+        Math.round((canvasWidth - targetDeviceWidth) / 2),
+        Math.round((canvasHeight - targetDeviceHeight) / 2),
+        targetDeviceWidth,
+        targetDeviceHeight,
       );
 
       const dataUrl = canvas.toDataURL('image/png');
