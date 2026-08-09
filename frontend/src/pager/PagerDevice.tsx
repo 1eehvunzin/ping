@@ -144,6 +144,30 @@ function drawCircleButton(
   ctx.fillText(label, cx, cy + r + labelFontPx * 1.6);
 }
 
+// Matches the live <svg viewBox="0 0 24 24"><polyline .../></svg> chevrons:
+// NEXT is "6 9, 12 15, 18 9" (points down), DEL/ESC is "15 6, 9 12, 15 18"
+// (points left) — both centered on (12,12), so offsets below are relative
+// to that center, scaled by px() same as everything else.
+function drawChevron(ctx: CanvasRenderingContext2D, cx: number, cy: number, px: (n: number) => number, direction: 'down' | 'left') {
+  ctx.save();
+  ctx.strokeStyle = '#c4c7cb';
+  ctx.lineWidth = px(2.6);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (direction === 'down') {
+    ctx.moveTo(cx - px(6), cy - px(3));
+    ctx.lineTo(cx, cy + px(3));
+    ctx.lineTo(cx + px(6), cy - px(3));
+  } else {
+    ctx.moveTo(cx + px(3), cy - px(6));
+    ctx.lineTo(cx - px(3), cy);
+    ctx.lineTo(cx + px(3), cy + px(6));
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Renders a story-ratio (9:16) PNG of the message screen by drawing the
 // pager device directly with Canvas 2D primitives, mirroring PagerDevice.css
 // — deliberately not a DOM screenshot (html-to-image/html2canvas etc), since
@@ -411,8 +435,12 @@ async function buildStoryDataUrl(
   const powerR = px(50);
   const rowCenterY = controlsY + powerR;
 
-  drawCircleButton(ctx, bezelX + px(6) + dpadR, rowCenterY, dpadR, 'NEXT', btnLabelFontPx);
-  drawCircleButton(ctx, bezelX + px(6) + dpadR * 2 + px(20) + dpadR, rowCenterY, dpadR, 'DEL / ESC', btnLabelFontPx);
+  const nextCx = bezelX + px(6) + dpadR;
+  const delCx = bezelX + px(6) + dpadR * 2 + px(20) + dpadR;
+  drawCircleButton(ctx, nextCx, rowCenterY, dpadR, 'NEXT', btnLabelFontPx);
+  drawChevron(ctx, nextCx, rowCenterY, px, 'down');
+  drawCircleButton(ctx, delCx, rowCenterY, dpadR, 'DEL / ESC', btnLabelFontPx);
+  drawChevron(ctx, delCx, rowCenterY, px, 'left');
 
   const volumeHeights = [px(20), px(28), px(34), px(28), px(20)];
   const volumeBarW = px(9);
