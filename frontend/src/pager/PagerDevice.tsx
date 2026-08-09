@@ -161,13 +161,12 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
     const node = deviceRef.current;
     if (!node || savingStory) return;
     setSavingStory(true);
+    // The LCD flicker / cursor / envelope / menu-dot blink are infinite CSS
+    // animations. Capturing a subtree with animations still running mid-flight
+    // is a known trigger for a torn/duplicated-seam image on iOS Safari's
+    // foreignObject rendering — freeze them for the duration of the capture.
+    node.classList.add('pager-capturing');
     try {
-      // Capture the device at its current on-screen (responsive) size rather
-      // than forcing it to full native width — on iOS Safari, capturing
-      // foreignObject content wider than the actual viewport produces a torn
-      // /duplicated-seam image. pixelRatio supersamples for crispness, and
-      // the fit-to-1080x1920-with-margins resize happens below via drawImage
-      // instead of by inflating the captured node itself.
       const deviceDataUrl = await toPng(node, {
         pixelRatio: 3,
         backgroundColor: '#ffffff',
@@ -224,6 +223,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
     } catch {
       setToast('이미지 생성에 실패했어요');
     } finally {
+      node.classList.remove('pager-capturing');
       setSavingStory(false);
     }
   }

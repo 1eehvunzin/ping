@@ -528,6 +528,14 @@
   animation: rimGlow 2.6s ease-in-out infinite;
 }
 
+/* Applied to .pager-device only while html-to-image is capturing it for the
+   story export — freezes the infinite blink/flicker animations, which
+   otherwise risk a torn/duplicated-seam capture on iOS Safari. */
+.pager-capturing,
+.pager-capturing * {
+  animation: none !important;
+}
+
 /* Floating actions (share link / save story) — deliberately outside the
    LCD chrome, styled as a plain overlay control rather than a pager screen. */
 .pager-float-btn {
