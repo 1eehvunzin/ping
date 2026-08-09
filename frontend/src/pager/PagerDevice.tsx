@@ -1,4 +1,5 @@
-import { useEffect, useReducer, useRef, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { toPng } from 'html-to-image';
 import { ApiError, approveRequest, declineRequest, getAccount, getInbox, getRequests, login, markRead, register, sendMessage } from './api';
 import { BACKLIGHT_PALETTES, MAX_ID_LENGTH, MAX_PW_LENGTH, MIN_ID_LENGTH, MIN_PW_LENGTH, OFF_PALETTE, PRESETS, filterPresets, getHomeMenu } from './data';
 import { initialPagerState, pagerReducer, type PagerState } from './reducer';
@@ -83,8 +84,11 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
   const scale = useDeviceScale(DEVICE_WIDTH, STAGE_MARGIN);
   const entryInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const deviceRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const [toast, setToast] = useState<string | null>(null);
+  const [savingStory, setSavingStory] = useState(false);
 
   const isOn = state.phase !== 'off';
   const pal = isOn ? BACKLIGHT_PALETTES[backlight] : OFF_PALETTE;
@@ -105,6 +109,12 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
     const t = setTimeout(() => dispatch({ type: 'API_ERROR_CLEAR' }), 3000);
     return () => clearTimeout(t);
   }, [state.apiError]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2400);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Poll the server for new inbox/request messages once authenticated.
   useEffect(() => {
@@ -127,6 +137,92 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
       clearInterval(timer);
     };
   }, [state.hasId, isOn, state.myId]);
+
+  async function handleShareSent() {
+    const s = stateRef.current;
+    const shareText = `[ping] ${s.myId}님이 삐삐 메시지를 보냈어요! 확인해보세요`;
+    const shareUrl = window.location.origin;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'ping', text: shareText, url: shareUrl });
+      } catch {
+        // user cancelled the share sheet — nothing to do
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(`${shareText} ${shareUrl}`);
+      setToast('링크가 복사됐어요');
+    } catch {
+      setToast('복사에 실패했어요');
+    }
+  }
+
+  async function handleSaveStory() {
+    const node = deviceRef.current;
+    if (!node || savingStory) return;
+    setSavingStory(true);
+    try {
+      // Capture the device at a fixed width (ignoring the page's current
+      // responsive scale) so the output size is predictable, leaving side
+      // margins, then letterbox it onto a white 1080x1920 (9:16) canvas.
+      const canvasWidth = 1080;
+      const canvasHeight = Math.round((canvasWidth * 16) / 9);
+      const sideMargin = 60;
+      const targetDeviceWidth = canvasWidth - sideMargin * 2;
+      const captureScale = targetDeviceWidth / DEVICE_WIDTH;
+      const deviceDataUrl = await toPng(node, {
+        pixelRatio: captureScale,
+        backgroundColor: '#ffffff',
+        skipFonts: true,
+        style: { transform: 'none' },
+      });
+      const deviceImg = new Image();
+      await new Promise<void>((resolve, reject) => {
+        deviceImg.onload = () => resolve();
+        deviceImg.onerror = () => reject(new Error('device image load failed'));
+        deviceImg.src = deviceDataUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('canvas 2d context unavailable');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      ctx.drawImage(
+        deviceImg,
+        Math.round((canvasWidth - deviceImg.width) / 2),
+        Math.round((canvasHeight - deviceImg.height) / 2),
+      );
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const fileName = `ping-story-${Date.now()}.png`;
+
+      if (navigator.canShare && navigator.share) {
+        try {
+          const blob = await (await fetch(dataUrl)).blob();
+          const file = new File([blob], fileName, { type: 'image/png' });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'ping' });
+            return;
+          }
+        } catch {
+          // share sheet unavailable/cancelled/activation expired — fall back to download
+        }
+      }
+
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = fileName;
+      a.click();
+    } catch {
+      setToast('이미지 생성에 실패했어요');
+    } finally {
+      setSavingStory(false);
+    }
+  }
 
   async function handleOk() {
     const s = stateRef.current;
@@ -337,6 +433,7 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
         style={{ width: DEVICE_WIDTH * scale, height: DEVICE_HEIGHT * scale }}
       >
         <div
+          ref={deviceRef}
           className="pager-device"
           style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}
         >
@@ -648,6 +745,20 @@ export function PagerDevice({ backlight = 'ice' }: PagerDeviceProps) {
           </div>
         </div>
       </div>
+
+      {state.phase === 'sent' && (
+        <button className="pager-float-btn" onClick={() => void handleShareSent()}>
+          삐삐 - 알리기
+        </button>
+      )}
+
+      {state.phase === 'message' && curMsg && (
+        <button className="pager-float-btn" onClick={() => void handleSaveStory()} disabled={savingStory}>
+          {savingStory ? '이미지 만드는 중...' : '스토리로 공유'}
+        </button>
+      )}
+
+      {toast && <div className="pager-toast">{toast}</div>}
     </div>
   );
 }

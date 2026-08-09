@@ -527,3 +527,47 @@
   border: 2.6px solid #c4c7cb;
   animation: rimGlow 2.6s ease-in-out infinite;
 }
+
+/* Floating actions (share link / save story) — deliberately outside the
+   LCD chrome, styled as a plain overlay control rather than a pager screen. */
+.pager-float-btn {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(20px, 5vh, 40px);
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 14px 26px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font-family: 'Barlow Semi Condensed', sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  letter-spacing: .3px;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .28);
+  transition: background .15s ease, transform .1s ease;
+}
+.pager-float-btn:hover { background: rgba(0, 0, 0, .75); }
+.pager-float-btn:active { transform: translateX(-50%) scale(.96); }
+.pager-float-btn:disabled { opacity: .6; cursor: default; }
+
+.pager-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(clamp(20px, 5vh, 40px) + 56px);
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .75);
+  color: #fff;
+  font-family: 'Barlow Semi Condensed', sans-serif;
+  font-size: 14px;
+  letter-spacing: .2px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .25);
+  animation: boot .15s ease;
+}
