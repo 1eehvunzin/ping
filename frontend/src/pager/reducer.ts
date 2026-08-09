@@ -14,7 +14,7 @@ export interface PagerState {
   authSel: number;
   menuSel: number;
   toId: string;
-  isReply: boolean;
+  pickMsgFrom: 'compose' | 'message' | 'friends';
   presetSel: number;
   searchText: string;
   sentText: string;
@@ -41,7 +41,7 @@ export const initialPagerState: PagerState = {
   authSel: 0,
   menuSel: 0,
   toId: '',
-  isReply: false,
+  pickMsgFrom: 'compose',
   presetSel: 0,
   searchText: '',
   sentText: '',
@@ -154,8 +154,11 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
             return { ...state, entryText: state.entryText.slice(0, -1) };
           }
           return { ...state, phase: 'off', entryError: false };
-        case 'pickMsg':
-          return { ...state, phase: state.isReply ? 'message' : 'composeId', isReply: false };
+        case 'pickMsg': {
+          const backPhase: Phase =
+            state.pickMsgFrom === 'message' ? 'message' : state.pickMsgFrom === 'friends' ? 'friends' : 'composeId';
+          return { ...state, phase: backPhase, pickMsgFrom: 'compose' };
+        }
         case 'home':
           return { ...state, phase: 'off' };
         case 'inbox':
@@ -205,7 +208,7 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
             toId: state.entryText,
             phase: 'pickMsg',
             presetSel: 0,
-            isReply: false,
+            pickMsgFrom: 'compose',
             searchText: '',
           };
         }
@@ -247,7 +250,19 @@ export function pagerReducer(state: PagerState, action: PagerAction): PagerState
             phase: 'pickMsg',
             toId: cur.from,
             presetSel: 0,
-            isReply: true,
+            pickMsgFrom: 'message',
+            searchText: '',
+          };
+        }
+        case 'friends': {
+          const cur = state.friends[state.friendSel];
+          if (!cur) return state;
+          return {
+            ...state,
+            phase: 'pickMsg',
+            toId: cur,
+            presetSel: 0,
+            pickMsgFrom: 'friends',
             searchText: '',
           };
         }

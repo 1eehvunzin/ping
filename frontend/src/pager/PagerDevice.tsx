@@ -51,7 +51,7 @@ const LEGEND: Record<string, { next: string; back: string; ok: string }> = {
   message: { next: 'NEXT', back: 'INBOX', ok: 'REPLY' },
   requests: { next: 'SCROLL', back: 'HOME', ok: 'VIEW' },
   requestDetail: { next: '', back: 'DECLINE', ok: 'APPROVE' },
-  friends: { next: 'SCROLL', back: 'HOME', ok: '' },
+  friends: { next: 'SCROLL', back: 'HOME', ok: 'SEND' },
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
