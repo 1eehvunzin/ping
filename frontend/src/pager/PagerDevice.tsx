@@ -121,6 +121,13 @@ function drawCircleButton(
   label: string,
   labelFontPx: number,
 ) {
+  // .pager-btn-circle box-shadow: 0 1px 1px rgba(255,255,255,.06), 0 2px 5px
+  // rgba(0,0,0,.35), plus insets canvas can't express — approximate with a
+  // single soft drop shadow.
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.4)';
+  ctx.shadowBlur = r * 0.14;
+  ctx.shadowOffsetY = r * 0.06;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   const grad = ctx.createRadialGradient(cx, cy - r * 0.08, r * 0.1, cx, cy, r);
@@ -128,6 +135,7 @@ function drawCircleButton(
   grad.addColorStop(1, '#333538');
   ctx.fillStyle = grad;
   ctx.fill();
+  ctx.restore();
 
   ctx.fillStyle = '#5f6266';
   ctx.font = `600 ${labelFontPx}px "Barlow Semi Condensed", sans-serif`;
@@ -171,14 +179,20 @@ async function buildStoryDataUrl(
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
   // Device shell — linear-gradient(158deg, #54565a 0%, #45474b 30%, #37393c 62%, #2c2e30 100%)
-  roundRectPath(ctx, deviceX, deviceY, deviceWidth, deviceHeight, px(34));
+  // plus its drop shadow: 0 44px 70px -22px rgba(45,52,62,.5), 0 10px 26px rgba(0,0,0,.2)
   const deviceGrad = ctx.createLinearGradient(deviceX, deviceY, deviceX + deviceWidth, deviceY + deviceHeight);
   deviceGrad.addColorStop(0, '#54565a');
   deviceGrad.addColorStop(0.3, '#45474b');
   deviceGrad.addColorStop(0.62, '#37393c');
   deviceGrad.addColorStop(1, '#2c2e30');
+  ctx.save();
+  ctx.shadowColor = 'rgba(45,52,62,.45)';
+  ctx.shadowBlur = px(55);
+  ctx.shadowOffsetY = px(28);
+  roundRectPath(ctx, deviceX, deviceY, deviceWidth, deviceHeight, px(34));
   ctx.fillStyle = deviceGrad;
   ctx.fill();
+  ctx.restore();
 
   const devicePad = px(26);
   const bezelX = deviceX + devicePad;
@@ -271,11 +285,6 @@ async function buildStoryDataUrl(
     ctx.fillRect(battX + cellPad + i * (cellW + cellGap), battY + cellPad, cellW, battH - cellPad * 2);
   }
   ctx.fillRect(battX + battW, battY + battH * 0.28, px(3), battH * 0.44);
-
-  ctx.font = `${statusFontPx}px "DotGothic16", monospace`;
-  ctx.textAlign = 'right';
-  ctx.fillText('✉', battX - px(14), signalBaseY);
-  ctx.textAlign = 'left';
 
   cursorY += statusFontPx * 0.3 + px(6);
   ctx.lineWidth = px(3);
@@ -392,12 +401,18 @@ async function buildStoryDataUrl(
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  // .pager-controls-row { margin-top: 18px; padding: 0 6px }
+  // .pager-controls-row { margin-top: 18px; padding: 0 6px; align-items: center }
+  // The row's cross-axis center is shared by every item (dpad circles, volume
+  // bars, power circle) — anchor everything to one center line rather than
+  // stacking from a shared top/bottom, matching that align-items: center.
   const controlsY = bezelY + bezelHeight + px(16) + labelFontPx + px(18);
   const btnLabelFontPx = px(13);
   const dpadR = px(37);
-  drawCircleButton(ctx, bezelX + px(6) + dpadR, controlsY + dpadR, dpadR, 'NEXT', btnLabelFontPx);
-  drawCircleButton(ctx, bezelX + px(6) + dpadR * 2 + px(20) + dpadR, controlsY + dpadR, dpadR, 'DEL / ESC', btnLabelFontPx);
+  const powerR = px(50);
+  const rowCenterY = controlsY + powerR;
+
+  drawCircleButton(ctx, bezelX + px(6) + dpadR, rowCenterY, dpadR, 'NEXT', btnLabelFontPx);
+  drawCircleButton(ctx, bezelX + px(6) + dpadR * 2 + px(20) + dpadR, rowCenterY, dpadR, 'DEL / ESC', btnLabelFontPx);
 
   const volumeHeights = [px(20), px(28), px(34), px(28), px(20)];
   const volumeBarW = px(9);
@@ -405,18 +420,19 @@ async function buildStoryDataUrl(
   const volumeTotalW = volumeHeights.length * volumeBarW + (volumeHeights.length - 1) * volumeGap;
   const volumeRight = bezelX + bezelWidth - px(6) - px(100) - px(20) - px(6);
   const volumeLeft = volumeRight - volumeTotalW;
+  const volumeMaxH = Math.max(...volumeHeights);
+  const volumeBottomY = rowCenterY + volumeMaxH / 2;
   ctx.fillStyle = '#242527';
   volumeHeights.forEach((h, i) => {
     const bx = volumeLeft + i * (volumeBarW + volumeGap);
-    roundRectPath(ctx, bx, controlsY + dpadR * 2 - h, volumeBarW, h, px(5));
+    roundRectPath(ctx, bx, volumeBottomY - h, volumeBarW, h, px(5));
     ctx.fill();
   });
 
-  const powerR = px(50);
   const powerCx = bezelX + bezelWidth - px(6) - powerR;
-  drawCircleButton(ctx, powerCx, controlsY + dpadR * 2 - powerR, powerR, 'POWER / OK', btnLabelFontPx);
+  drawCircleButton(ctx, powerCx, rowCenterY, powerR, 'POWER / OK', btnLabelFontPx);
   ctx.beginPath();
-  ctx.arc(powerCx, controlsY + dpadR * 2 - powerR, px(15), 0, Math.PI * 2);
+  ctx.arc(powerCx, rowCenterY, px(15), 0, Math.PI * 2);
   ctx.strokeStyle = '#c4c7cb';
   ctx.lineWidth = px(2.6);
   ctx.stroke();
